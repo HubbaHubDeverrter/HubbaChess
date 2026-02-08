@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hero Chess Online</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --accent-color: #d4af37;
+            --white-cell: #f0f0f0;
+            --black-cell: #444;
+            --cell-size: min(11.5vw, 65px); 
+        }
+
+        body { 
+            background: var(--bg-color); display: flex; flex-direction: column; align-items: center; 
+            color: white; font-family: 'Segoe UI', sans-serif; margin: 0;
+            height: 100vh; overflow: hidden; touch-action: none;
+        }
+
+        /* SCREENS */
+        #menu-screen, #win-overlay, #promotion-overlay, #lobby-screen {
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 500;
+        }
+        #win-overlay, #promotion-overlay, #game-screen { display: none; }
+
+        #game-screen {
+            flex-direction: column; align-items: center; justify-content: flex-start;
+            width: 100%; height: 100%; padding-top: 20px;
+        }
+
+        input {
+            padding: 15px; font-size: 1.2rem; border-radius: 5px; border: none; margin: 10px; width: 200px; text-align: center;
+        }
+
+        .menu-btn {
+            background: #333; color: white; border: 1px solid var(--accent-color); padding: 15px 40px;
+            margin: 10px; font-size: 1.1rem; border-radius: 5px; cursor: pointer; width: 250px;
+            transition: transform 0.1s;
+        }
+        .menu-btn:active { transform: scale(0.95); background: var(--accent-color); color: black; }
+
+        /* BOARD */
+        #board-container { position: relative; margin-bottom: 20px; }
+        
+        #board { 
+            display: grid; 
+            grid-template-columns: repeat(8, var(--cell-size)); 
+            grid-template-rows: repeat(8, var(--cell-size)); 
+            border: 4px solid var(--accent-color);
+            position: relative; background: #000;
+        }
+
+        .cell { width: var(--cell-size); height: var(--cell-size); position: relative; }
+        .white { background: var(--white-cell); }
+        .black { background: var(--black-cell); }
+        .selected { background: var(--accent-color) !important; }
+
+        /* PIECES */
+        #pieces-layer { position: absolute; top: 0; left: 0; pointer-events: none; width: 100%; height: 100%; z-index: 10; }
+
+        .piece-container {
+            position: absolute;
+            width: var(--cell-size); height: var(--cell-size);
+            transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+            display: flex; flex-direction: column; align-items: center;
+            pointer-events: none;
+            will-change: transform, top, left;
+        }
+
+        .piece { 
+            width: 180%; height: 180%; 
+            background-size: contain; background-repeat: no-repeat; background-position: center bottom;
+            filter: drop-shadow(0px 8px 4px rgba(0,0,0,0.6));
+            position: absolute; bottom: 10%; z-index: 10;
+        }
+
+        .hp-bar {
+            position: absolute; bottom: -5px; display: flex; gap: 2px;
+            z-index: 100; background: rgba(0,0,0,0.6); padding: 2px 4px; border-radius: 10px;
+        }
+        .hp-dot { width: 6px; height: 6px; background: #2ecc71; border-radius: 50%; border: 1px solid #000; }
+        .hp-dot.lost { background: #e74c3c; opacity: 0.5; }
+
+        /* ANIMATIONS */
+        @keyframes dash {
+            0% { transform: translate(0,0) scale(1); }
+            50% { transform: translate(var(--dx), var(--dy)) scale(1.2); }
+            100% { transform: translate(0,0) scale(1); }
+        }
+        .attacking { animation: dash 0.4s ease-out; z-index: 200 !important; }
+
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .hit-shake { animation: shake 0.3s ease-in-out; }
+
+        .star {
+            position: absolute; color: gold; font-size: 24px; z-index: 300; pointer-events: none;
+            animation: star-pop 0.6s forwards; text-shadow: 0 0 5px orange;
+        }
+        @keyframes star-pop {
+            0% { transform: scale(0); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: scale(2) translateY(-50px) rotate(180deg); opacity: 0; }
+        }
+
+        /* ASSETS */
+        .pawn.team-W { background-image: url('Figuren/classic/w-pawn_classic.png'); }
+        .rook.team-W { background-image: url('Figuren/classic/w-rook_classic.png'); }
+        .knight.team-W { background-image: url('Figuren/classic/w-knight_classic.png'); }
+        .bishop.team-W { background-image: url('Figuren/classic/w-bishop_classic.png'); }
+        .queen.team-W { background-image: url('Figuren/classic/w-queen_classic.png'); }
+        .king.team-W { background-image: url('Figuren/classic/w-king_classic.png'); }
+        .pawn.team-B { background-image: url('Figuren/classic/b-pawn_classic.png'); }
+        .rook.team-B { background-image: url('Figuren/classic/b-rook_classic.png'); }
+        .knight.team-B { background-image: url('Figuren/classic/b-knight_classic.png'); }
+        .bishop.team-B { background-image: url('Figuren/classic/b-bishop_classic.png'); }
+        .queen.team-B { background-image: url('Figuren/classic/b-queen_classic.png'); }
+        .king.team-B { background-image: url('Figuren/classic/b-king_classic.png'); }
+    </style>
+</head>
+<body>
+
+    <div id="lobby-screen">
+        <h1 style="color:var(--accent-color); font-size: 3rem;">HERO CHESS</h1>
+        <p>Online Multiplayer</p>
+        <input type="text" id="room-input" placeholder="Raum-Name (z.B. Otto)" maxlength="10">
+        <div style="display:flex; gap:10px;">
+            <button class="menu-btn" onclick="joinRoom('W')" style="border-color:#fff;">Als WEISS spielen</button>
+            <button class="menu-btn" onclick="joinRoom('B')" style="border-color:#444; background:#222;">Als SCHWARZ spielen</button>
+        </div>
+        <p id="connection-status" style="font-size:0.8rem; color:#888; margin-top:20px;">Verbinde zu Firebase...</p>
+    </div>
+
+    <div id="promotion-overlay">
+        <h2>Beförderung!</h2>
+        <div style="display: flex; flex-wrap: wrap; justify-content: center;">
+            <button class="menu-btn" style="width:120px" onclick="promoteTo('D')">Dame</button>
+            <button class="menu-btn" style="width:120px" onclick="promoteTo('T')">Turm</button>
+            <button class="menu-btn" style="width:120px" onclick="promoteTo('L')">Läufer</button>
+            <button class="menu-btn" style="width:120px" onclick="promoteTo('S')">Springer</button>
+        </div>
+    </div>
+
+    <div id="win-overlay">
+        <h2 id="win-banner" style="font-size:3rem; color:gold;">SIEG!</h2>
+        <button class="menu-btn" onclick="location.reload()">Neue Runde</button>
+    </div>
+
+    <div id="game-screen">
+        <div style="display:flex; justify-content:space-between; width:100%; max-width:500px; padding:10px; align-items:center;">
+            <span id="my-role" style="font-weight:bold;">Zuschauer</span>
+            <span id="status">Lade...</span>
+        </div>
+        
+        <div id="board-container">
+            <div id="board"></div>
+            <div id="pieces-layer"></div>
+        </div>
+
+        <button class="menu-btn" style="width:200px; background:#442222; border-color:#d4af37;" onclick="location.reload()">
+            Zurück zur Lobby
+        </button>
+    </div>
+    <script type="module">
+        // NUR DIESE IMPORTS SIND ERLAUBT:
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyA8stGIQLoEo8s5TxtfDpt6PYnD1E_4K5A",
+          authDomain: "hubba-chess.firebaseapp.com",
+          projectId: "hubba-chess",
+          storageBucket: "hubba-chess.firebasestorage.app",
+          messagingSenderId: "1003284156401",
+          appId: "1:1003284156401:web:1b072577e28433fe14fe50",
+          measurementId: "G-5M2FJWESVF",
+          // HIER WAR DAS KOMMA FEHLEND:
+          databaseURL: "https://hubba-chess-default-rtdb.europe-west1.firebasedatabase.app/"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+
+        window.myColor = null; 
+        window.roomName = null;
+        
+        signInAnonymously(auth).then(() => {
+            const stat = document.getElementById('connection-status');
+            if(stat) {
+                stat.innerText = "Verbunden! Wähle einen Raum.";
+                stat.style.color = "#2ecc71";
+            }
+        }).catch(e => {
+            document.getElementById('connection-status').innerText = "Fehler: " + e.message;
+        });
+
+        window.joinRoom = function(color) {
+            const roomVal = document.getElementById('room-input').value.trim().toUpperCase();
+            if(!roomVal) { alert("Bitte Raum-Namen eingeben!"); return; }
+            
+            window.myColor = color;
+            window.roomName = roomVal;
+            
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'flex';
+            document.getElementById('my-role').innerText = "Du bist: " + (color === 'W' ? "WEISS" : "SCHWARZ");
+
+            const gameRef = ref(db, 'rooms/' + roomVal);
+            onValue(gameRef, (snapshot) => {
+                const data = snapshot.val();
+                
+                // NOTFALL-PLAN: Wenn Raum leer ist oder keine Figuren hat -> NEU ERSTELLEN
+                if(!data || !data.board) {
+                    if(color === 'W') {
+                        initGameDB();
+                    } else {
+                        document.getElementById('status').innerText = "Warte auf Weiß (lädt)...";
+                    }
+                } else {
+                    if(window.networkUpdate) window.networkUpdate(data);
+                }
+            });
+        };
+
+        window.sendMove = function(newBoard, newTurn, animData) {
+            if(!window.roomName) return;
+            update(ref(db, 'rooms/' + window.roomName), {
+                board: newBoard,
+                turn: newTurn,
+                lastMove: animData || null
+            });
+        };
+
+        function initGameDB() {
+            const mk = (team, type) => {
+                let hp = (type === 'K' || type === 'T') ? 5 : 3;
+                return { id: 'p-' + Math.random().toString(36).substr(2,9), team, type, hp, maxHp: hp, moved: false };
+            };
+
+            const startLine = ['T', 'S', 'L', 'D', 'K', 'L', 'S', 'T'];
+            const board = Array(8).fill(null).map(() => Array(8).fill(0));
+            
+            for(let i=0; i<8; i++) {
+                board[0][i] = mk('B', startLine[i]);
+                board[1][i] = mk('B', 'B');
+                board[6][i] = mk('W', 'B');
+                board[7][i] = mk('W', startLine[i]);
+            }
+            
+            set(ref(db, 'rooms/' + window.roomName), {
+                board: board,
+                turn: 'W',
+                lastMove: { timestamp: 0 }
+            });
+        }
+    </script>
+    <script>
+        const boardElement = document.getElementById('board');
+        const piecesLayer = document.getElementById('pieces-layer');
+        const statusDisplay = document.getElementById('status');
+        
+        let gameState = []; 
+        let selectedCell = null;
+        let turn = 'W';
+        let promotionPos = null;
+        let lastAnimTime = 0;
+
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const cell = document.createElement('div');
+                cell.className = `cell ${(r+c)%2===0?'white':'black'}`;
+                cell.id = `cell-${r}-${c}`;
+                cell.onclick = () => handleCellClick(r, c);
+                boardElement.appendChild(cell);
+            }
+        }
+
+        window.networkUpdate = function(data) {
+            if(!data.board) return;
+            gameState = data.board;
+            turn = data.turn;
+            updateUI();
+            
+            let text = (turn === 'W' ? "WEISS" : "SCHWARZ") + " ist am Zug";
+            if(turn === window.myColor) text += " (DU!)";
+            statusDisplay.innerText = text;
+            statusDisplay.style.color = turn === window.myColor ? "#2ecc71" : "white";
+
+            if(data.lastMove && data.lastMove.timestamp !== lastAnimTime) {
+                lastAnimTime = data.lastMove.timestamp;
+                playNetworkAnimation(data.lastMove);
+            }
+            checkWin();
+        };
+
+        function updateUI() {
+            const currentIds = [];
+            if(!gameState || gameState.length !== 8) return;
+
+            for(let r = 0; r < 8; r++) {
+                for(let c = 0; c < 8; c++) {
+                    const p = gameState[r][c];
+                    if(p && p.id) {
+                        currentIds.push(p.id);
+                        let el = document.getElementById(p.id);
+                        if(!el) {
+                            el = document.createElement('div');
+                            el.id = p.id;
+                            el.className = 'piece-container';
+                            el.innerHTML = `<div class="piece"></div><div class="hp-bar"></div>`;
+                            piecesLayer.appendChild(el);
+                        }
+                        
+                        el.style.zIndex = 10 + r;
+                        el.style.left = `calc(${c} * var(--cell-size))`;
+                        el.style.top = `calc(${r} * var(--cell-size))`;
+                        
+                        const graphic = el.querySelector('.piece');
+                        graphic.className = `piece ${getTypeClass(p.type)} team-${p.team}`;
+                        
+                        const bar = el.querySelector('.hp-bar');
+                        bar.innerHTML = '';
+                        for(let i=0; i<p.maxHp; i++) {
+                            bar.innerHTML += `<div class="hp-dot ${i >= p.hp ? 'lost' : ''}"></div>`;
+                        }
+                    }
+                }
+            }
+            document.querySelectorAll('.piece-container').forEach(el => {
+                if(!currentIds.includes(el.id)) el.remove();
+            });
+        }
+
+        function getTypeClass(t) { return { 'B':'pawn','T':'rook','L':'bishop','S':'knight','D':'queen','K':'king' }[t]; }
+
+        function handleCellClick(r, c) {
+            if(turn !== window.myColor) return; 
+            if(promotionPos) return;
+            if(!gameState[r]) return;
+
+            const piece = gameState[r][c];
+            if (selectedCell) {
+                const sPiece = gameState[selectedCell.r][selectedCell.c];
+                if (selectedCell.r === r && selectedCell.c === c) {
+                    selectedCell = null;
+                } else if (isValidMove(selectedCell.r, selectedCell.c, r, c, sPiece.type, sPiece.team)) {
+                    executeAction(selectedCell.r, selectedCell.c, r, c);
+                } else if (piece && piece.team === window.myColor) {
+                    selectedCell = { r, c };
+                } else { selectedCell = null; }
+            } else if (piece && piece.team === window.myColor) {
+                selectedCell = { r, c };
+            }
+            
+            document.querySelectorAll('.cell').forEach(el => el.classList.remove('selected'));
+            if(selectedCell) document.getElementById(`cell-${selectedCell.r}-${selectedCell.c}`).classList.add('selected');
+        }
+
+        function executeAction(sr, sc, er, ec) {
+            let newState = JSON.parse(JSON.stringify(gameState));
+            const attacker = newState[sr][sc];
+            const target = newState[er][ec];
+            let animType = 'move';
+            
+            if (target) {
+                animType = 'attack';
+                target.hp -= 1;
+                if (target.hp <= 0) {
+                    newState[er][ec] = attacker;
+                    newState[sr][sc] = 0;
+                    attacker.moved = true;
+                } else if (attacker.type !== 'S') {
+                    const dr = er > sr ? 1 : (er < sr ? -1 : 0);
+                    const dc = ec > sc ? 1 : (ec < sc ? -1 : 0);
+                    newState[er - dr][ec - dc] = attacker;
+                    newState[sr][sc] = 0;
+                    attacker.moved = true;
+                } else {
+                    attacker.moved = true;
+                }
+            } else {
+                newState[er][ec] = attacker;
+                newState[sr][sc] = 0;
+                attacker.moved = true;
+            }
+
+            if (attacker.type === 'L') {
+                animType = 'nova';
+                let finalR, finalC;
+                for(let rr=0; rr<8; rr++) for(let cc=0; cc<8; cc++) 
+                    if(newState[rr][cc] && newState[rr][cc].id === attacker.id) { finalR=rr; finalC=cc; }
+                
+                if(finalR !== undefined) {
+                    [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([dr, dc]) => {
+                        let nr = finalR+dr, nc = finalC+dc;
+                        if(nr>=0 && nr<8 && nc>=0 && nc<8 && newState[nr][nc] && newState[nr][nc].team !== attacker.team) {
+                            newState[nr][nc].hp -= 1;
+                        }
+                    });
+                }
+            }
+
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+                if(newState[r][c] && newState[r][c].hp <= 0) newState[r][c] = 0;
+            }
+
+            if (attacker.type === 'B' && (er === 0 || er === 7)) {
+                gameState = newState; 
+                for(let rr=0; rr<8; rr++) for(let cc=0; cc<8; cc++) 
+                    if(newState[rr][cc] && newState[rr][cc].id === attacker.id) promotionPos = {r:rr, c:cc};
+                document.getElementById('promotion-overlay').style.display = 'flex';
+            } else {
+                const nextTurn = turn === 'W' ? 'B' : 'W';
+                window.sendMove(newState, nextTurn, {
+                    type: animType,
+                    from: {r: sr, c: sc},
+                    to: {r: er, c: ec},
+                    attackerId: attacker.id,
+                    timestamp: Date.now()
+                });
+                selectedCell = null;
+                document.querySelectorAll('.cell').forEach(el => el.classList.remove('selected'));
+            }
+        }
+
+        function promoteTo(type) {
+            let newState = JSON.parse(JSON.stringify(gameState));
+            const p = newState[promotionPos.r][promotionPos.c];
+            p.type = type;
+            p.maxHp = (type === 'T') ? 5 : 3;
+            p.hp = p.maxHp;
+            
+            document.getElementById('promotion-overlay').style.display = 'none';
+            promotionPos = null;
+            const nextTurn = turn === 'W' ? 'B' : 'W';
+            window.sendMove(newState, nextTurn, { type: 'promote', timestamp: Date.now() });
+        }
+
+        function playNetworkAnimation(anim) {
+            if(!anim || !anim.attackerId) return;
+            const el = document.getElementById(anim.attackerId);
+            if(!el) return;
+
+            if(anim.type === 'attack' || anim.type === 'nova') {
+                const dy = (anim.to.r - anim.from.r) * varToPx(1);
+                const dx = (anim.to.c - anim.from.c) * varToPx(1);
+                el.style.setProperty('--dx', `${dx}px`);
+                el.style.setProperty('--dy', `${dy}px`);
+                el.classList.add('attacking');
+                setTimeout(() => el.classList.remove('attacking'), 400);
+                setTimeout(() => createStars(anim.to.r, anim.to.c), 200);
+            }
+            
+            if(anim.type === 'nova') {
+                setTimeout(() => {
+                    [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([dr, dc]) => {
+                        createStars(anim.to.r + dr, anim.to.c + dc);
+                    });
+                }, 400);
+            }
+        }
+
+        function createStars(r, c) {
+            if(r<0 || r>7 || c<0 || c>7) return;
+            const layer = document.getElementById('pieces-layer');
+            for(let i=0; i<5; i++) {
+                const s = document.createElement('div');
+                s.className = 'star'; s.innerHTML = '★';
+                s.style.left = `calc(${c} * var(--cell-size) + ${Math.random()*30}px)`;
+                s.style.top = `calc(${r} * var(--cell-size) + ${Math.random()*30}px)`;
+                layer.appendChild(s);
+                setTimeout(() => s.remove(), 600);
+            }
+        }
+
+        function varToPx(v) { return document.querySelector('.cell').offsetWidth * v; }
+
+        function isValidMove(sr, sc, er, ec, type, team) {
+            const rd = Math.abs(er - sr), cd = Math.abs(ec - sc);
+            if (gameState[er][ec] && gameState[er][ec].team === team) return false;
+            
+            if (type !== 'S') {
+                const stepR = rd === 0 ? 0 : (er > sr ? 1 : -1);
+                const stepC = cd === 0 ? 0 : (ec > sc ? 1 : -1);
+                let cr = sr + stepR, cc = sc + stepC;
+                while (cr !== er || cc !== ec) {
+                    if (gameState[cr][cc] !== 0) return false;
+                    cr += stepR; cc += stepC;
+                }
+            }
+            switch (type) {
+                case 'B': 
+                    const d = team === 'W' ? -1 : 1; 
+                    return (cd === 0 && er-sr === d && !gameState[er][ec]) || 
+                           (!gameState[sr][sc].moved && cd === 0 && er-sr === 2*d && !gameState[er][ec]) || 
+                           (cd === 1 && er-sr === d && gameState[er][ec]);
+                case 'T': return rd === 0 || cd === 0;
+                case 'L': return rd === cd;
+                case 'S': return (rd === 2 && cd === 1) || (rd === 1 && cd === 2);
+                case 'D': return rd === 0 || cd === 0 || rd === cd;
+                case 'K': return rd <= 1 && cd <= 1;
+            }
+            return false;
+        }
+
+        function checkWin(show) {
+            let wk = false, bk = false;
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+                if(gameState[r][c] && gameState[r][c].type === 'K') { 
+                    if(gameState[r][c].team === 'W') wk = true; else bk = true; 
+                }
+            }
+            if(!wk || !bk) {
+                document.getElementById('win-overlay').style.display = 'flex';
+                document.getElementById('win-banner').innerText = wk ? "WEISS GEWINNT!" : "SCHWARZ GEWINNT!";
+            }
+        }
+    </script>
+</body>
+</html>
